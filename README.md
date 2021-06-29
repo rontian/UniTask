@@ -241,9 +241,57 @@ CancellationToken can be created by `CancellationTokenSource` or MonoBehaviour's
 await UniTask.DelayFrame(1000, cancellationToken: this.GetCancellationTokenOnDestroy());
 ```
 
-When cancellation is detected, all methods throw `OperationCanceledException` and propagate upstream. `OperationCanceledException` is a special exception, if this exception is not handled, it is propagated finally to `UniTaskScheduler.UnobservedTaskException`.
+For propagate Cancellation, all async method recommend to accept `CancellationToken cancellationToken` at last argument, and pass `CancellationToken` from root to end.
 
-The default behaviour of received unhandled exception is to write log as exception. Log level can be changed using `UniTaskScheduler.UnobservedExceptionWriteLogType`. If you want to use custom behaviour, set an action to `UniTaskScheduler.UnobservedTaskException.`
+```csharp
+await FooAsync(this.GetCancellationTokenOnDestroy());
+
+// ---
+
+async UniTask FooAsync(CancellationToken cancellationToken)
+{
+    await BarAsync(cancellationToken);
+}
+
+async UniTask BarAsync(CancellationToken cancellationToken)
+{
+    await UniTask.Delay(TimeSpan.FromSeconds(3), cancellationToken);
+}
+```
+
+`CancellationToken` means lifecycle of async. You can hold your own lifecycle insteadof default CancellationTokenOnDestroy.
+
+```csharp
+public class MyBehaviour : MonoBehaviour
+{
+    CancellationTokenSource disableCancellation = new CancellationTokenSource();
+    CancellationTokenSource destroyCancellation = new CancellationTokenSource();
+
+    private void OnEnable()
+    {
+        if (disableCancellation != null)
+        {
+            disableCancellation.Dispose();
+        }
+        disableCancellation = new CancellationTokenSource();
+    }
+
+    private void OnDisable()
+    {
+        disableCancellation.Cancel();
+    }
+
+    private void OnDestroy()
+    {
+        destroyCancellation.Cancel();
+        destroyCancellation.Dispose();
+    }
+}
+```
+
+When cancellation is detected, all methods throw `OperationCanceledException` and propagate upstream. When exception(not limited to `OperationCanceledException`) is not handled in async method, it is propagated finally to `UniTaskScheduler.UnobservedTaskException`. The default behaviour of received unhandled exception is to write log as exception. Log level can be changed using `UniTaskScheduler.UnobservedExceptionWriteLogType`. If you want to use custom behaviour, set an action to `UniTaskScheduler.UnobservedTaskException.`
+
+Andalso `OperationCanceledException` is a special exception, this is silently ignored at `UnobservedTaskException`.
 
 If you want to cancel behaviour in an async UniTask method, throw `OperationCanceledException` manually.
 
@@ -265,7 +313,7 @@ public async UniTask<int> BarAsync()
         var x = await FooAsync();
         return x * 2;
     }
-    catch (Exception ex) when (!(ex is OperationCanceledException))
+    catch (Exception ex) when (!(ex is OperationCanceledException)) // when (ex is not OperationCanceledException) at C# 9.0
     {
         return -1;
     }
@@ -669,7 +717,7 @@ Async LINQ is enabled when `using Cysharp.Threading.Tasks.Linq;`, and `UniTaskAs
 
 It's closer to UniRx (Reactive Extensions), but UniTaskAsyncEnumerable is a pull-based asynchronous stream, whereas Rx was a push-based asynchronous stream. Note that although similar, the characteristics are different and the details behave differently along with them.
 
-`UniTaskAsyncEnumerable` is the entry point like `Enumerbale`. In addition to the standard query operators, there are other generators for Unity such as `EveryUpdate`, `Timer`, `TimerFrame`, `Interval`, `IntervalFrame`, and `EveryValueChanged`. And also added additional UniTask original query operators like `Append`, `Prepend`, `DistinctUntilChanged`, `ToHashSet`, `Buffer`, `CombineLatest`, `Do`, `Never`, `ForEachAsync`, `Pairwise`, `Publish`, `Queue`, `Return`, `SkipUntil`, `TakeUntil`, `SkipUntilCanceled`, `TakeUntilCanceled`, `TakeLast`, `Subscribe`.
+`UniTaskAsyncEnumerable` is the entry point like `Enumerable`. In addition to the standard query operators, there are other generators for Unity such as `EveryUpdate`, `Timer`, `TimerFrame`, `Interval`, `IntervalFrame`, and `EveryValueChanged`. And also added additional UniTask original query operators like `Append`, `Prepend`, `DistinctUntilChanged`, `ToHashSet`, `Buffer`, `CombineLatest`, `Do`, `Never`, `ForEachAsync`, `Pairwise`, `Publish`, `Queue`, `Return`, `SkipUntil`, `TakeUntil`, `SkipUntilCanceled`, `TakeUntilCanceled`, `TakeLast`, `Subscribe`.
 
 The method with Func as an argument has three additional overloads, `***Await`, `***AwaitWithCancellation`.
 
@@ -848,7 +896,7 @@ button.OnClickAsAsyncEnumerable().Subscribe(async x =>
 
 Channel
 ---
-`Channel` is the same as [System.Threading.Tasks.Channels](https://docs.microsoft.com/ja-jp/dotnet/api/system.threading.channels?view=netcore-3.1) which is similar to a GoLang Channel.
+`Channel` is the same as [System.Threading.Tasks.Channels](https://docs.microsoft.com/en-us/dotnet/api/system.threading.channels?view=netcore-3.1) which is similar to a GoLang Channel.
 
 Currently it only supports multiple-producer, single-consumer unbounded channels. It can create by `Channel.CreateSingleConsumerUnbounded<T>()`.
 
@@ -937,7 +985,7 @@ UniTask can run on Unity Editor like an Editor Coroutine. However, there are som
 
 * UniTask.Delay's DelayType.DeltaTime, UnscaledDeltaTime do not work correctly because they can not get deltaTime in editor. Therefore run on EditMode, automatically change DelayType to `DelayType.Realtime` that wait for the right time.
 * All PlayerLoopTiming run on the timing `EditorApplication.update`.
-* `-batchmode` with `-quit` does not work because does not run `EditorApplication.update`(quit on single frame) so should not use `-quit` and quit manually with `Environment.Exit(0)`.
+* `-batchmode` with `-quit` does not work because Unity does not run `EditorApplication.update` and quit after a single frame. Instead, don't use `-quit` and quit manually with `EditorApplication.Exit(0)`.
 
 Compare with Standard Task API
 ---
